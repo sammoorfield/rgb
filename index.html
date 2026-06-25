@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RGB Color Sampler</title>
+    <title>Camera Analyzer Suite</title>
     <style>
         html, body {
             margin: 0;
@@ -17,21 +17,58 @@
             overflow: hidden;
         }
 
-        /* Camera feed container (top 35% of screen) */
+        /* Default: let the container grow to fill available space (Uniformity mode) */
         .video-container {
             position: relative;
             width: 100%;
-            height: 35vh;
+            flex-grow: 1; /* Takes up 100% of remaining screen height in Uniformity mode */
             background-color: #000;
         }
 
-        /* Video element with hardware-accelerated SVG filter applied */
-        video {
+        /* Absolute layer styling to keep video stream alive on mobile */
+        .video-container video, .video-container canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
+            box-sizing: border-box;
+            transition: opacity 0.2s ease-out;
+        }
+
+        video {
             filter: url(#white-balance-filter);
             will-change: filter;
+        }
+
+        /* Stacking and opacity controls to keep video stream running in background */
+        body.mode-rgb video {
+            opacity: 1;
+            z-index: 1;
+            pointer-events: auto;
+        }
+        body.mode-rgb #output-canvas {
+            opacity: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+        body.mode-rgb #sample-box { 
+            transition: none; /* Disable transition during centering reset */
+        }
+
+        body.mode-uniformity video {
+            opacity: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+        body.mode-uniformity #output-canvas {
+            opacity: 1;
+            z-index: 1;
+            pointer-events: auto;
+        }
+        body.mode-uniformity #sample-box { 
+            transition: left 0.15s ease-out, top 0.15s ease-out; 
         }
 
         /* Center sampling target zone */
@@ -45,9 +82,10 @@
             transform: translate(-50%, -50%);
             pointer-events: none;
             box-sizing: border-box;
+            z-index: 2;
         }
 
-        /* Calibration Toggle Button */
+        /* Set White Button overlay (positioned inside video preview) */
         .calibrate-btn {
             position: absolute;
             bottom: 12px;
@@ -56,7 +94,7 @@
             color: #ffffff;
             border: 1px solid rgba(255, 255, 255, 0.4);
             padding: 8px 14px;
-            border-radius: 20px;
+            border-radius: 20px; /* Restored to rounded */
             font-size: 0.85rem;
             font-weight: 500;
             cursor: pointer;
@@ -76,24 +114,69 @@
             border-color: #ffffff;
         }
 
-        /* Solid white highlight styling when locked */
         .calibrate-btn.locked {
             background-color: #ffffff;
             color: #121212;
             border-color: #ffffff;
         }
 
-        /* RGB Bars container */
+        /* Generic control dock container */
+        .controls-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 15px 20px;
+            box-sizing: border-box;
+            background-color: #121212;
+        }
+
+        .control-btn {
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 20px; /* Restored to rounded */
+            color: #ffffff;
+            background-color: rgba(0, 0, 0, 0.65);
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Uniformity view tolerance toggles */
+        .tolerance-group {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            max-width: 320px;
+            justify-content: center;
+        }
+
+        .tolerance-btn {
+            flex-grow: 1;
+            padding: 8px 16px;
+            font-size: 0.9rem;
+        }
+
+        .tolerance-btn.active {
+            background-color: #ffffff;
+            color: #121212;
+            border-color: #ffffff;
+        }
+
+        /* RGB view vertical charts stretching to occupy remaining space */
         .chart-container {
             display: flex;
             justify-content: space-around;
             align-items: stretch;
             width: 100%;
-            flex-grow: 1;
-            padding: 20px 10px;
+            flex-grow: 1; /* Stretch to fill remaining height in RGB mode */
+            padding: 8px 10px 4px 10px; /* Reduced bottom padding below labels from 10px to 4px */
             box-sizing: border-box;
             background-color: #121212;
-            position: relative; /* Anchors the absolute grid overlay */
+            position: relative;
         }
 
         .bar-wrapper {
@@ -104,12 +187,12 @@
             width: 25%;
             max-width: 100px;
             position: relative;
-            z-index: 1; /* Sits below the grid lines */
+            z-index: 1;
         }
 
         .bar-value {
             font-size: 1.1rem;
-            margin-bottom: 10px;
+            margin-bottom: 12px; /* Increased vertical spacing below numbers from 6px to 12px */
             font-weight: 600;
             font-variant-numeric: tabular-nums;
         }
@@ -117,7 +200,7 @@
         .bar-track {
             flex-grow: 1;
             width: 40px;
-            background-color: transparent; /* Empty area invisible */
+            background-color: transparent;
             border-radius: 6px;
             position: relative;
             overflow: hidden;
@@ -132,14 +215,13 @@
             border-radius: 3px;
         }
 
-        /* Custom color configurations */
         #bar-r { background-color: #fd4545; }
         #bar-g { background-color: #45c045; }
         #bar-b { background-color: #3375fc; }
 
         .label {
             font-size: 0.9rem;
-            margin-top: 10px;
+            margin-top: 6px;
             color: #aaaaaa;
             font-weight: 500;
         }
@@ -147,26 +229,26 @@
         /* Background Grid Overlay styling */
         .grid-overlay {
             position: absolute;
-            top: 20px;    /* Matches chart-container padding-top */
-            bottom: 20px; /* Matches chart-container padding-bottom */
-            left: 10px;   /* Matches chart-container padding-left */
-            right: 10px;  /* Matches chart-container padding-right */
+            top: 8px;    /* Synchronized with chart-container padding-top */
+            bottom: 4px; /* Synchronized with chart-container padding-bottom */
+            left: 10px;
+            right: 10px;
             display: flex;
             flex-direction: column;
             pointer-events: none;
-            z-index: 3;   /* Sits on top of the bars to maintain uniform color */
+            z-index: 3;
         }
 
-        /* Placeholders to mirror the height and margins of vertical column text elements */
+        /* Value/label spacers synchronized with bar margins */
         .grid-value-placeholder {
             height: 1.1rem;
-            margin-bottom: 10px;
+            margin-bottom: 12px; /* Matches bar-value margin-bottom update */
             visibility: hidden;
         }
 
         .grid-label-placeholder {
             height: 0.9rem;
-            margin-top: 10px;
+            margin-top: 6px;
             visibility: hidden;
         }
 
@@ -181,12 +263,86 @@
             left: 0;
             right: 0;
             height: 1px;
-            border-top: 1px solid rgba(255, 255, 255, 0.45); /* Solid, uniform white gridline */
+            border-top: 1px solid rgba(255, 255, 255, 0.45);
         }
+
+        /* Navigation container at the absolute bottom */
+        .nav-container {
+            display: flex;
+            width: 100%;
+            background-color: #1a1a1a;
+            border-top: 1px solid #2d2d2d;
+            box-sizing: border-box;
+            padding: 0; /* Flush borderless design */
+            height: 44px; /* Fixed compact bar height */
+            align-items: center;
+            z-index: 10;
+        }
+
+        .nav-btn {
+            flex: 1; /* Splits remaining horizontal space equally */
+            height: 100%;
+            text-align: center;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none; /* Removed individual borders */
+            background-color: transparent;
+            color: #aaaaaa;
+            transition: all 0.2s ease;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .nav-btn.active {
+            color: #ffffff;
+            background-color: rgba(255, 255, 255, 0.1); /* Subtle native highlight instead of block border */
+        }
+
+        /* Central dividing line between navigation views */
+        #nav-rgb {
+            border-right: 1px solid #2d2d2d;
+        }
+
+        /* Compact Fullscreen Toggle Button on the far right */
+        .fullscreen-btn {
+            width: 48px;
+            height: 100%;
+            border: none;
+            background-color: transparent;
+            color: #aaaaaa;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            border-left: 1px solid #2d2d2d; /* Separating dividing line */
+            user-select: none;
+            -webkit-user-select: none;
+            transition: color 0.2s;
+        }
+
+        .fullscreen-btn:active {
+            color: #ffffff;
+        }
+
+        /* Display Toggle Helper Classes based on the Active Mode of the Body */
+        body.mode-rgb .view-rgb-only { display: flex !important; }
+        body.mode-rgb .view-uniformity-only { display: none !important; }
+
+        /* Specific layout override for RGB Mode: lock camera feed window height to 35vh */
+        body.mode-rgb .video-container {
+            flex-grow: 0;
+            height: 35vh;
+        }
+
+        body.mode-uniformity .view-rgb-only { display: none !important; }
+        body.mode-uniformity .view-uniformity-only { display: flex !important; }
 
         #error-message {
             position: absolute;
-            bottom: 20px;
+            bottom: 60px;
             left: 50%;
             transform: translateX(-50%);
             color: #ff4d4d;
@@ -195,7 +351,7 @@
             border-radius: 4px;
             text-align: center;
             font-size: 0.9rem;
-            z-index: 10;
+            z-index: 15;
             display: none;
             width: 80%;
             max-width: 400px;
@@ -210,9 +366,9 @@
         }
     </style>
 </head>
-<body>
+<body class="mode-rgb"> <!-- Defaults to RGB view on load -->
 
-    <!-- SVG filter container used to dynamically adjust video color matrix -->
+    <!-- SVG filter container used to dynamically adjust video color matrix in RGB mode -->
     <svg class="svg-filter-holder">
         <defs>
             <filter id="white-balance-filter">
@@ -221,17 +377,22 @@
         </defs>
     </svg>
 
+    <!-- Top portion: Live camera feeds -->
     <div class="video-container">
         <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="output-canvas"></canvas>
         <div id="sample-box"></div>
-        <button id="calibrate-btn" class="calibrate-btn">Set White</button>
+        <button id="calibrate-btn" class="calibrate-btn view-rgb-only">Set White</button>
     </div>
 
-    <div class="chart-container">
-        <!-- Background Grid Overlay (draws on top of columns to maintain constant color) -->
+    <!-- Middle portion: Active view controls -->
+    
+    <!-- 1. RGB View Controls (Bar charts) -->
+    <div class="chart-container view-rgb-only">
         <div class="grid-overlay">
             <div class="grid-value-placeholder"></div>
             <div class="grid-track-area">
+                <div class="grid-line" style="bottom: 0%;"></div> <!-- Added 0% base gridline -->
                 <div class="grid-line" style="bottom: 25%;"></div>
                 <div class="grid-line" style="bottom: 50%;"></div>
                 <div class="grid-line" style="bottom: 75%;"></div>
@@ -268,13 +429,33 @@
         </div>
     </div>
 
+    <!-- 2. Uniformity View Controls (Tolerance buttons) -->
+    <div class="controls-container view-uniformity-only">
+        <div class="tolerance-group">
+            <button id="btn-low" class="control-btn tolerance-btn">Low</button>
+            <button id="btn-med" class="control-btn tolerance-btn active">Medium</button>
+            <button id="btn-high" class="control-btn tolerance-btn">High</button>
+        </div>
+    </div>
+
+    <!-- Navigation Bar at the absolute bottom -->
+    <div class="nav-container">
+        <button id="nav-rgb" class="nav-btn active">RGB</button>
+        <button id="nav-uniformity" class="nav-btn">Uniformity</button>
+        <button id="btn-fullscreen" class="fullscreen-btn">&#x26F6;</button> <!-- Fullscreen icon button -->
+    </div>
+
     <div id="error-message"></div>
 
     <script>
         const video = document.getElementById('webcam');
+        const outputCanvas = document.getElementById('output-canvas');
+        const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
+        const sampleBox = document.getElementById('sample-box');
         const errorMessage = document.getElementById('error-message');
         const calibrateBtn = document.getElementById('calibrate-btn');
         const webcamMatrix = document.getElementById('webcam-matrix');
+        const btnFullscreen = document.getElementById('btn-fullscreen');
         
         const barR = document.getElementById('bar-r');
         const barG = document.getElementById('bar-g');
@@ -284,29 +465,47 @@
         const valG = document.getElementById('val-g');
         const valB = document.getElementById('val-b');
 
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+        const btnLow = document.getElementById('btn-low');
+        const btnMed = document.getElementById('btn-med');
+        const btnHigh = document.getElementById('btn-high');
 
-        // Exponential Moving Average smoothing factor
+        const navRgb = document.getElementById('nav-rgb');
+        const navUniformity = document.getElementById('nav-uniformity');
+
+        // Offscreen canvas for downscaled pixel manipulation (prevents performance lag in Uniformity mode)
+        const processCanvas = document.createElement('canvas');
+        const processCtx = processCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Navigation state: 'rgb' or 'uniformity'
+        let currentView = 'rgb';
+
+        // --- View 1 (RGB) States ---
         const SMOOTHING_FACTOR = 0.12; 
-
-        // Smoothed raw measurements
         let smoothedR = 128;
         let smoothedG = 128;
         let smoothedB = 128;
 
-        // Calibration baseline states
         let isCalibrated = false;
         let gainR = 1.0;
         let gainG = 1.0;
         let gainB = 1.0;
 
+        let lastTextUpdateTime = -1000; // Limits percentage numbers updates to 1s
+
+        // --- View 2 (Uniformity) States ---
+        let normX = 0.5; // Normalized target coordinates (starts dead center)
+        let normY = 0.5;
+        let currentTolerance = 0.16; // Defaults to Medium (16%)
+        const MAX_COLOR_DISTANCE = Math.sqrt(3 * 255 * 255); 
+
+        // Target color (Uniformity sampling matches whatever is under the target reticle in real-time)
+        let targetR = 128;
+        let targetG = 128;
+        let targetB = 128;
+
         const SAMPLE_SIZE = 40; 
 
-        // Variable to track the last time the percentage text was updated
-        let lastTextUpdateTime = -1000;
-
-        // 1. Mobile-optimized camera constraints (safely letting the browser match resolution)
+        // Mobile-optimized WebRTC parameters
         const constraints = {
             video: {
                 facingMode: 'environment' 
@@ -314,43 +513,48 @@
             audio: false
         };
 
-        // 2. Initialize video stream with event listeners attached FIRST to prevent mobile race conditions
+        // Initialize camera stream with event listeners attached first to prevent WebKit race conditions
         navigator.mediaDevices.getUserMedia(constraints)
         .then(stream => {
-            // Attach metadata listener before setting srcObject to ensure the event is captured on fast loads
             video.addEventListener('loadedmetadata', () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
                 requestAnimationFrame(processFrame);
             });
-
             video.srcObject = stream;
-            
-            // Explicitly call play to override aggressive mobile autoplay blocks
             return video.play();
         })
         .catch(err => {
-            console.warn("Camera access failed on environment mode, attempting fallback...", err);
-            
-            // Fallback: Request any available camera if 'environment' is rejected
+            console.warn("Camera environment mode failed, falling back...", err);
             return navigator.mediaDevices.getUserMedia({ video: true, audio: false })
             .then(stream => {
                 video.addEventListener('loadedmetadata', () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
                     requestAnimationFrame(processFrame);
                 });
                 video.srcObject = stream;
                 return video.play();
             })
             .catch(fallbackErr => {
-                console.error("Camera initialization failed entirely:", fallbackErr);
+                console.error("Camera access failed:", fallbackErr);
                 errorMessage.textContent = "Unable to start the camera. Please check your browser permissions.";
                 errorMessage.style.display = "block";
             });
         });
 
-        // Click handler for calibration toggle (using average-and-equal math)
+        // Repositioning target box logic in Uniformity mode (uses pointerdown for responsive touch)
+        outputCanvas.addEventListener('pointerdown', (e) => {
+            if (currentView !== 'uniformity') return;
+
+            const rect = outputCanvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            normX = Math.min(1, Math.max(0, clickX / rect.width));
+            normY = Math.min(1, Math.max(0, clickY / rect.height));
+
+            sampleBox.style.left = `${normX * 100}%`;
+            sampleBox.style.top = `${normY * 100}%`;
+        });
+
+        // Calibration Handlers (RGB View)
         calibrateBtn.addEventListener('click', () => {
             if (!isCalibrated) {
                 const avg = (smoothedR + smoothedG + smoothedB) / 3;
@@ -378,55 +582,191 @@
             }
         });
 
-        // Loop execution function
+        // Tolerance Click Handlers (Uniformity View)
+        btnLow.addEventListener('click', () => updateTolerance(0.24, btnLow));
+        btnMed.addEventListener('click', () => updateTolerance(0.16, btnMed));
+        btnHigh.addEventListener('click', () => updateTolerance(0.09, btnHigh));
+
+        function updateTolerance(value, clickedButton) {
+            currentTolerance = value;
+            document.querySelectorAll('.tolerance-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            clickedButton.classList.add('active');
+        }
+
+        // Navigation Menu Click Handlers
+        navRgb.addEventListener('click', () => setView('rgb'));
+        navUniformity.addEventListener('click', () => setView('uniformity'));
+
+        function setView(view) {
+            currentView = view;
+            if (view === 'rgb') {
+                document.body.className = 'mode-rgb';
+                
+                // Centering reset for the target reticle in RGB mode
+                normX = 0.5;
+                normY = 0.5;
+                sampleBox.style.left = '50%';
+                sampleBox.style.top = '50%';
+                
+                navRgb.classList.add('active');
+                navUniformity.classList.remove('active');
+            } else {
+                document.body.className = 'mode-uniformity';
+                
+                navUniformity.classList.add('active');
+                navRgb.classList.remove('active');
+            }
+        }
+
+        // Programmatic Fullscreen Mode Handler
+        btnFullscreen.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen()
+                .catch(err => {
+                    console.warn(`Fullscreen activation error: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Synchronize full screen buttons glyph icon based on system state
+        document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement) {
+                btnFullscreen.innerHTML = '&#x2922;'; // exit fullscreen icon (diagonal arrows in)
+            } else {
+                btnFullscreen.innerHTML = '&#x26F6;'; // enter fullscreen icon (square corners out)
+            }
+        });
+
+        // Main Rendering Loop
         function processFrame(timestamp) {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                if (currentView === 'rgb') {
+                    // --- View 1 (RGB Mode) Processing ---
+                    // Slices frames locally to extract center pixel averages
+                    const vWidth = video.videoWidth;
+                    const vHeight = video.videoHeight;
+                    
+                    processCanvas.width = vWidth;
+                    processCanvas.height = vHeight;
+                    processCtx.drawImage(video, 0, 0, vWidth, vHeight);
 
-                const startX = Math.floor((canvas.width - SAMPLE_SIZE) / 2);
-                const startY = Math.floor((canvas.height - SAMPLE_SIZE) / 2);
+                    const startX = Math.floor((vWidth - SAMPLE_SIZE) / 2);
+                    const startY = Math.floor((vHeight - SAMPLE_SIZE) / 2);
 
-                const imgData = ctx.getImageData(startX, startY, SAMPLE_SIZE, SAMPLE_SIZE);
-                const data = imgData.data;
-                const length = data.length;
+                    const imgData = processCtx.getImageData(startX, startY, SAMPLE_SIZE, SAMPLE_SIZE);
+                    const data = imgData.data;
+                    const length = data.length;
 
-                let sumR = 0;
-                let sumG = 0;
-                let sumB = 0;
+                    let sumR = 0, sumG = 0, sumB = 0;
+                    for (let i = 0; i < length; i += 4) {
+                        sumR += data[i];     
+                        sumG += data[i + 1]; 
+                        sumB += data[i + 2]; 
+                    }
 
-                for (let i = 0; i < length; i += 4) {
-                    sumR += data[i];     
-                    sumG += data[i + 1]; 
-                    sumB += data[i + 2]; 
-                }
+                    const pixelCount = length / 4;
+                    const rawR = sumR / pixelCount;
+                    const rawG = sumG / pixelCount;
+                    const rawB = sumB / pixelCount;
 
-                const pixelCount = length / 4;
-                const rawR = sumR / pixelCount;
-                const rawG = sumG / pixelCount;
-                const rawB = sumB / pixelCount;
+                    // Smoothing filter
+                    smoothedR = (SMOOTHING_FACTOR * rawR) + ((1 - SMOOTHING_FACTOR) * smoothedR);
+                    smoothedG = (SMOOTHING_FACTOR * rawG) + ((1 - SMOOTHING_FACTOR) * smoothedG);
+                    smoothedB = (SMOOTHING_FACTOR * rawB) + ((1 - SMOOTHING_FACTOR) * smoothedB);
 
-                // Smooth raw sensor data to prevent layout jittering
-                smoothedR = (SMOOTHING_FACTOR * rawR) + ((1 - SMOOTHING_FACTOR) * smoothedR);
-                smoothedG = (SMOOTHING_FACTOR * rawG) + ((1 - SMOOTHING_FACTOR) * smoothedG);
-                smoothedB = (SMOOTHING_FACTOR * rawB) + ((1 - SMOOTHING_FACTOR) * smoothedB);
+                    // Calibrated gains
+                    const calibratedR = Math.min(255, smoothedR * gainR);
+                    const calibratedG = Math.min(255, smoothedG * gainG);
+                    const calibratedB = Math.min(255, smoothedB * gainB);
 
-                // Apply gains (either 1.0 or calculated white-balance gains)
-                const calibratedR = Math.min(255, smoothedR * gainR);
-                const calibratedG = Math.min(255, smoothedG * gainG);
-                const calibratedB = Math.min(255, smoothedB * gainB);
+                    const pctR = (calibratedR / 255) * 100;
+                    const pctG = (calibratedG / 255) * 100;
+                    const pctB = (calibratedB / 255) * 100;
 
-                // Convert to a 0-100 percentage scale
-                const pctR = (calibratedR / 255) * 100;
-                const pctG = (calibratedG / 255) * 100;
-                const pctB = (calibratedB / 255) * 100;
+                    // Instantly update chart heights
+                    updateBars(pctR, pctG, pctB);
 
-                // Update the visual height of the charts on every frame (smooth animation)
-                updateBars(pctR, pctG, pctB);
+                    // Throttles numerical displays to 1s
+                    if (timestamp - lastTextUpdateTime >= 1000) {
+                        updateText(pctR, pctG, pctB);
+                        lastTextUpdateTime = timestamp;
+                    }
 
-                // Throttles the numeric text updates to once per 1000 milliseconds (1 second)
-                if (timestamp - lastTextUpdateTime >= 1000) {
-                    updateText(pctR, pctG, pctB);
-                    lastTextUpdateTime = timestamp;
+                } else if (currentView === 'uniformity') {
+                    // --- View 2 (Uniformity Mode) Processing ---
+                    const visualWidth = outputCanvas.clientWidth;
+                    const visualHeight = outputCanvas.clientHeight;
+
+                    outputCanvas.width = visualWidth;
+                    outputCanvas.height = visualHeight;
+
+                    // Caps rendering resolution at 480px width for fast mobile processing
+                    const scaleWidth = 480;
+                    const scaleHeight = Math.floor(480 * (visualHeight / visualWidth));
+
+                    processCanvas.width = scaleWidth;
+                    processCanvas.height = scaleHeight;
+
+                    // Render stream with center crop-to-fill
+                    drawImageCover(processCtx, video, 0, 0, scaleWidth, scaleHeight);
+
+                    // Coordinate mappings
+                    const centerX = Math.floor(normX * scaleWidth);
+                    const centerY = Math.floor(normY * scaleHeight);
+
+                    const startX = Math.max(0, Math.min(scaleWidth - SAMPLE_SIZE, Math.floor(centerX - SAMPLE_SIZE / 2)));
+                    const startY = Math.max(0, Math.min(scaleHeight - SAMPLE_SIZE, Math.floor(centerY - SAMPLE_SIZE / 2)));
+
+                    // Sample the target color inside the reticle
+                    const sampleData = processCtx.getImageData(startX, startY, SAMPLE_SIZE, SAMPLE_SIZE).data;
+                    const sampleLength = sampleData.length;
+
+                    let sumR = 0, sumG = 0, sumB = 0;
+                    for (let i = 0; i < sampleLength; i += 4) {
+                        sumR += sampleData[i];
+                        sumG += sampleData[i + 1];
+                        sumB += sampleData[i + 2];
+                    }
+
+                    const pixelCount = sampleLength / 4;
+                    targetR = Math.round(sumR / pixelCount);
+                    targetG = Math.round(sumG / pixelCount);
+                    targetB = Math.round(sumB / pixelCount);
+
+                    // Image threshold array parsing
+                    const imgData = processCtx.getImageData(0, 0, scaleWidth, scaleHeight);
+                    const data = imgData.data;
+                    const length = data.length;
+
+                    for (let i = 0; i < length; i += 4) {
+                        const r = data[i];
+                        const g = data[i + 1];
+                        const b = data[i + 2];
+
+                        const colorDistance = Math.sqrt(
+                            (r - targetR) ** 2 +
+                            (g - targetG) ** 2 +
+                            (b - targetB) ** 2
+                        );
+
+                        const normalizedDistance = colorDistance / MAX_COLOR_DISTANCE;
+
+                        if (normalizedDistance <= currentTolerance) {
+                            // Match: Keep original camera pixel unchanged
+                        } else {
+                            // Non-Match: Draw Hot Pink mask
+                            data[i] = 255;
+                            data[i + 1] = 105;
+                            data[i + 2] = 180;
+                        }
+                    }
+
+                    processCtx.putImageData(imgData, 0, 0);
+                    outputCtx.drawImage(processCanvas, 0, 0, visualWidth, visualHeight);
                 }
             }
 
@@ -445,6 +785,27 @@
             valR.textContent = `${Math.round(r)}%`;
             valG.textContent = `${Math.round(g)}%`;
             valB.textContent = `${Math.round(b)}%`;
+        }
+
+        // Helper function for aspect-ratio matching crops
+        function drawImageCover(ctx, img, x, y, w, h) {
+            const imgRatio = img.videoWidth / img.videoHeight;
+            const canvasRatio = w / h;
+            let sx, sy, sw, sh;
+
+            if (imgRatio > canvasRatio) {
+                sh = img.videoHeight;
+                sw = sh * canvasRatio;
+                sx = (img.videoWidth - sw) / 2;
+                sy = 0;
+            } else {
+                sw = img.videoWidth;
+                sh = sw / canvasRatio;
+                sx = 0;
+                sy = (img.videoHeight - sh) / 2;
+            }
+
+            ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
         }
     </script>
 </body>
