@@ -132,7 +132,7 @@
             border-radius: 3px;
         }
 
-        /* Updated color configurations */
+        /* Custom color configurations */
         #bar-r { background-color: #fd4545; }
         #bar-g { background-color: #45c045; }
         #bar-b { background-color: #3375fc; }
@@ -304,33 +304,53 @@
         const SAMPLE_SIZE = 40; 
 
         // Variable to track the last time the percentage text was updated
-        // Initialized to -1000 to trigger immediately on the very first frame
         let lastTextUpdateTime = -1000;
 
-        // Initialize video stream
-        navigator.mediaDevices.getUserMedia({
+        // 1. Mobile-optimized camera constraints (safely letting the browser match resolution)
+        const constraints = {
             video: {
-                facingMode: 'environment',
-                width: { ideal: 640 },
-                height: { ideal: 480 }
+                facingMode: 'environment' 
             },
             audio: false
-        })
+        };
+
+        // 2. Initialize video stream with event listeners attached FIRST to prevent mobile race conditions
+        navigator.mediaDevices.getUserMedia(constraints)
         .then(stream => {
-            video.srcObject = stream;
+            // Attach metadata listener before setting srcObject to ensure the event is captured on fast loads
             video.addEventListener('loadedmetadata', () => {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 requestAnimationFrame(processFrame);
             });
+
+            video.srcObject = stream;
+            
+            // Explicitly call play to override aggressive mobile autoplay blocks
+            return video.play();
         })
         .catch(err => {
-            console.error("Camera access error:", err);
-            errorMessage.textContent = "Unable to access the camera. Make sure you grant permissions and are serving over HTTPS.";
-            errorMessage.style.display = "block";
+            console.warn("Camera access failed on environment mode, attempting fallback...", err);
+            
+            // Fallback: Request any available camera if 'environment' is rejected
+            return navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(stream => {
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    requestAnimationFrame(processFrame);
+                });
+                video.srcObject = stream;
+                return video.play();
+            })
+            .catch(fallbackErr => {
+                console.error("Camera initialization failed entirely:", fallbackErr);
+                errorMessage.textContent = "Unable to start the camera. Please check your browser permissions.";
+                errorMessage.style.display = "block";
+            });
         });
 
-        // Click handler for calibration toggle
+        // Click handler for calibration toggle (using average-and-equal math)
         calibrateBtn.addEventListener('click', () => {
             if (!isCalibrated) {
                 const avg = (smoothedR + smoothedG + smoothedB) / 3;
@@ -413,7 +433,7 @@
             requestAnimationFrame(processFrame);
         }
 
-        // Fast update executed every frame to update bar heights directly
+        // Fast update executed every frame for chart height
         function updateBars(r, g, b) {
             barR.style.height = `${r}%`;
             barG.style.height = `${g}%`;
