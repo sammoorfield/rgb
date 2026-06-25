@@ -5,16 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Camera Analyzer Suite</title>
     <style>
+        /* Global box reset to prevent padding/border calculations from causing viewport overflows */
+        *, *:before, *:after {
+            box-sizing: border-box;
+        }
+
         html, body {
             margin: 0;
             padding: 0;
-            height: 100%;
+            height: 100dvh; /* Dynamic Viewport Height - stops mobile browser cutoffs */
+            width: 100%;
             background-color: #121212;
             color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            position: relative;
         }
 
         /* Default: let the container grow to fill available space (Uniformity mode) */
@@ -22,6 +29,7 @@
             position: relative;
             width: 100%;
             flex-grow: 1; /* Takes up 100% of remaining screen height in Uniformity mode */
+            flex-shrink: 1;
             background-color: #000;
         }
 
@@ -37,13 +45,9 @@
             transition: opacity 0.2s ease-out;
         }
 
-        video {
+        body.mode-rgb video {
             filter: url(#white-balance-filter);
             will-change: filter;
-        }
-
-        /* Stacking and opacity controls to keep video stream running in background */
-        body.mode-rgb video {
             opacity: 1;
             z-index: 1;
             pointer-events: auto;
@@ -90,34 +94,45 @@
             position: absolute;
             bottom: 12px;
             right: 12px;
-            background-color: rgba(0, 0, 0, 0.65);
-            color: #ffffff;
-            border: 1px solid rgba(255, 255, 255, 0.4);
+            background-color: #ffffff;
+            color: #121212;
+            border: 1px solid #ffffff;
             padding: 8px 14px;
-            border-radius: 20px; /* Restored to rounded */
+            border-radius: 20px;
             font-size: 0.85rem;
             font-weight: 500;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
             z-index: 5;
         }
 
         .calibrate-btn:active {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-color: #ffffff;
+            background-color: #e0e0e0;
+            border-color: #121212;
         }
 
         .calibrate-btn.locked {
-            background-color: #ffffff;
-            color: #121212;
+            background-color: #121212;
+            color: #ffffff;
             border-color: #ffffff;
+        }
+
+        .calibrate-btn.locked:active {
+            background-color: #2a2a2a;
+            border-color: #ffffff;
+        }
+
+        .calibrate-btn:focus {
+            outline: none;
+        }
+        .calibrate-btn::-moz-focus-inner {
+            border: 0;
         }
 
         /* Generic control dock container */
@@ -129,6 +144,7 @@
             padding: 15px 20px;
             box-sizing: border-box;
             background-color: #121212;
+            flex-shrink: 0; /* Prevents controls from compressing */
         }
 
         .control-btn {
@@ -143,6 +159,14 @@
             transition: background-color 0.2s, border-color 0.2s, color 0.2s;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .control-btn:focus {
+            outline: none;
+        }
+        .control-btn::-moz-focus-inner {
+            border: 0;
         }
 
         /* Uniformity view tolerance toggles */
@@ -172,18 +196,17 @@
             justify-content: space-around;
             align-items: stretch;
             width: 100%;
-            flex-grow: 1; /* Stretch to fill remaining height in RGB mode */
             padding: 8px 10px 4px 10px; /* Reduced vertical padding */
             box-sizing: border-box;
             background-color: #121212;
             position: relative;
         }
 
+        /* FIXED: Removed height: 100% to let Flexbox stretch elements without circular WebKit collapsing bugs */
         .bar-wrapper {
             display: flex;
             flex-direction: column;
             align-items: center;
-            height: 100%;
             width: 25%;
             max-width: 100px;
             position: relative;
@@ -191,27 +214,29 @@
         }
 
         .bar-value {
-            font-size: 1.1rem;
+            font-size: 1rem; /* Marginally downscaled for absolute safety on small viewports */
             margin-bottom: 12px; /* Increased vertical spacing below numbers */
             font-weight: 600;
             font-variant-numeric: tabular-nums;
         }
 
+        /* Absolute positioning anchors height directly on WebKit mobile */
         .bar-track {
             flex-grow: 1;
-            width: 40px;
+            width: 30px; /* Marginally narrowed for horizontal compact safety */
             background-color: transparent;
             border-radius: 6px;
-            position: relative;
+            position: relative; /* Anchors the absolutely positioned bar */
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
         }
 
+        /* Absolute positioning guarantees rendering scales reliably on iOS Safari */
         .bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
             width: 100%;
-            height: 0%;
+            height: 0%; /* Transitions smoothly via standard JS style.height updates */
             border-radius: 3px;
         }
 
@@ -220,7 +245,7 @@
         #bar-b { background-color: #3375fc; }
 
         .label {
-            font-size: 0.9rem;
+            font-size: 0.85rem; /* Marginally downscaled for absolute safety on small viewports */
             margin-top: 6px; /* Reduced spacing to maximize track height */
             color: #aaaaaa;
             font-weight: 500;
@@ -241,13 +266,13 @@
 
         /* Value/label spacers synchronized with bar margins */
         .grid-value-placeholder {
-            height: 1.1rem;
+            height: 1rem;
             margin-bottom: 12px; /* Matches bar-value margin-bottom update */
             visibility: hidden;
         }
 
         .grid-label-placeholder {
-            height: 0.9rem;
+            height: 0.85rem;
             margin-top: 6px;
             visibility: hidden;
         }
@@ -275,6 +300,7 @@
             box-sizing: border-box;
             padding: 0; /* Flush borderless design */
             height: 44px; /* Fixed compact bar height */
+            flex-shrink: 0; /* Prevents the navigation bar from compressing */
             align-items: center;
             z-index: 10;
         }
@@ -321,6 +347,7 @@
             user-select: none;
             -webkit-user-select: none;
             transition: color 0.2s;
+            flex-shrink: 0;
         }
 
         .fullscreen-btn:active {
@@ -331,10 +358,20 @@
         body.mode-rgb .view-rgb-only { display: flex !important; }
         body.mode-rgb .view-uniformity-only { display: none !important; }
 
-        /* Specific layout override for RGB Mode: lock camera feed window height to 35vh */
+        /* Specific layout override for RGB Mode: lock camera feed window height to 30dvh for absolute viewport safety */
         body.mode-rgb .video-container {
             flex-grow: 0;
-            height: 35vh;
+            flex-shrink: 0;
+            height: 30dvh;
+        }
+
+        /* Dynamic, non-collapsible Flexbox auto-sizing for RGB charts (stops mobile browser collapsing) */
+        body.mode-rgb .chart-container {
+            display: flex !important;
+            flex-grow: 1;
+            flex-shrink: 1;
+            height: auto; /* Reset to let Flexbox handle alignment */
+            box-sizing: border-box;
         }
 
         body.mode-uniformity .view-rgb-only { display: none !important; }
@@ -450,7 +487,6 @@
     <script>
         const video = document.getElementById('webcam');
         const outputCanvas = document.getElementById('output-canvas');
-        const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
         const sampleBox = document.getElementById('sample-box');
         const errorMessage = document.getElementById('error-message');
         const calibrateBtn = document.getElementById('calibrate-btn');
@@ -472,12 +508,23 @@
         const navRgb = document.getElementById('nav-rgb');
         const navUniformity = document.getElementById('nav-uniformity');
 
-        // Offscreen canvas for downscaled pixel manipulation (prevents performance lag in Uniformity mode)
+        // Sample sizes for center-crop averaging
+        const SAMPLE_SIZE = 40;
+        const UNIFORMITY_SAMPLE_SIZE = 10;
+
+        // Tiny offscreen 2D canvas strictly used to fetch sample box averages [2.2.1, 2.2.3]
+        const sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = UNIFORMITY_SAMPLE_SIZE;
+        sampleCanvas.height = UNIFORMITY_SAMPLE_SIZE;
+        const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+
         const processCanvas = document.createElement('canvas');
+        processCanvas.width = SAMPLE_SIZE;
+        processCanvas.height = SAMPLE_SIZE;
         const processCtx = processCanvas.getContext('2d', { willReadFrequently: true });
 
         // --- Low-Power Hardware Optimization Configuration --- [8]
-        const TARGET_FPS = 6; // Throttles calculations from 60 FPS down to 6 FPS (90% CPU savings) [8]
+        const TARGET_FPS = 6; 
         const FPS_INTERVAL = 1000 / TARGET_FPS;
         let lastFrameTime = 0;
 
@@ -485,7 +532,6 @@
         let currentView = 'rgb';
 
         // --- View 1 (RGB) States ---
-        // Raised to 0.60 to account for lower FPS, allowing charts to settle within 0.6 seconds
         const SMOOTHING_FACTOR = 0.60; 
         let smoothedR = 128;
         let smoothedG = 128;
@@ -498,20 +544,28 @@
 
         let lastTextUpdateTime = -1000; // Limits percentage numbers updates to 1s
 
-        // --- View 2 (Uniformity) States ---
+        // --- View 2 (Uniformity / GPU WebGL Mode) States --- [2.2.1]
         let normX = 0.5; // Normalized target coordinates (starts dead center)
         let normY = 0.5;
         let currentTolerance = 0.16; // Defaults to Medium (16%)
-        const MAX_COLOR_DISTANCE = Math.sqrt(3 * 255 * 255); 
+        
+        // Maximum possible Euclidean distance in 3D RGB color space: sqrt(3 * 255^2)
+        const MAX_COLOR_DISTANCE_SQ = 3 * 255 * 255; 
+        const MAX_COLOR_DISTANCE = Math.sqrt(MAX_COLOR_DISTANCE_SQ);
+
+        // Pre-calculating squared tolerance to eliminate Math.sqrt loops [1.1.3]
+        let currentToleranceSq = (currentTolerance * MAX_COLOR_DISTANCE) ** 2;
 
         // Target color (Uniformity sampling matches whatever is under the target reticle in real-time)
         let targetR = 128;
         let targetG = 128;
         let targetB = 128;
 
-        const SAMPLE_SIZE = 40; 
+        // Last frame reticle position for avoiding redundant WebGL work
+        let lastNormX = -1;
+        let lastNormY = -1;
+        let lastUniformitySampleTime = 0;
 
-        // Mobile-optimized WebRTC parameters
         const constraints = {
             video: {
                 facingMode: 'environment' 
@@ -519,31 +573,195 @@
             audio: false
         };
 
-        // Initialize camera stream with event listeners attached first to prevent WebKit race conditions
-        navigator.mediaDevices.getUserMedia(constraints)
-        .then(stream => {
-            video.addEventListener('loadedmetadata', () => {
-                requestAnimationFrame(processFrame);
+        // --- GPU WebGL Renderer Initialization --- [2.2.1]
+        let gl, glProgram, positionBuffer, texture;
+        let uScaleLoc, uTargetColorLoc, uToleranceSqLoc;
+
+        function initWebGL() {
+            // CRITICAL CORRECTION: We DO NOT request a conflicting 2D context on outputCanvas here,
+            // allowing WebGL context initialization to succeed with 100% reliability [1.1.2]
+            gl = outputCanvas.getContext('webgl', { 
+                antialias: false, 
+                depth: false, 
+                stencil: false, 
+                alpha: false, 
+                preserveDrawingBuffer: false,
+                powerPreference: 'low-power'
             });
-            video.srcObject = stream;
-            return video.play();
-        })
-        .catch(err => {
-            console.warn("Camera environment mode failed, falling back...", err);
-            return navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+
+            if (!gl) {
+                console.warn("WebGL context initialization failed. Real-time threshold mode is inactive.");
+                return;
+            }
+
+            // WebGL Vertex Shader (handles coordinates and GPU cover cropping with NO scalar subtraction) [2.2.1]
+            const vsSource = `
+                attribute vec2 a_position;
+                varying vec2 v_texCoord;
+                uniform vec2 u_scale;
+                void main() {
+                    gl_Position = vec4(a_position, 0.0, 1.0);
+                    v_texCoord = (a_position * vec2(0.5, -0.5)) * u_scale + vec2(0.5, 0.5);
+                }
+            `;
+
+            // WebGL Fragment Shader (runs per-pixel thresholding on the GPU in parallel) [2.2.1]
+            const fsSource = `
+                precision mediump float;
+                varying vec2 v_texCoord;
+                uniform sampler2D u_image;
+                uniform vec3 u_targetColor;
+                uniform float u_toleranceSq;
+                const vec3 HOT_PINK = vec3(1.0, 0.41176, 0.70588);
+                void main() {
+                    vec4 color = texture2D(u_image, v_texCoord);
+                    vec3 diff = color.rgb - u_targetColor;
+                    float distSq = dot(diff, diff);
+                    if (distSq <= u_toleranceSq) {
+                        gl_FragColor = color;
+                    } else {
+                        gl_FragColor = vec4(HOT_PINK, 1.0);
+                    }
+                }
+            `;
+
+            const vs = compileShader(gl, vsSource, gl.VERTEX_SHADER);
+            const fs = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
+            glProgram = createProgram(gl, vs, fs);
+
+            if (!glProgram) {
+                console.error("WebGL Program compiled with errors. Fallback mode is active.");
+                gl = null;
+                return;
+            }
+
+            // Fetch attribute and uniform locations from Compiled Program [2.2.5]
+            const positionLoc = gl.getAttribLocation(glProgram, 'a_position');
+            uScaleLoc = gl.getUniformLocation(glProgram, 'u_scale');
+            uTargetColorLoc = gl.getUniformLocation(glProgram, 'u_targetColor');
+            uToleranceSqLoc = gl.getUniformLocation(glProgram, 'u_toleranceSq');
+
+            // Define flat quad covering the screen coordinates [-1.0, 1.0] [2.2.1]
+            positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                -1.0, -1.0,
+                 1.0, -1.0,
+                -1.0,  1.0,
+                -1.0,  1.0,
+                 1.0, -1.0,
+                 1.0,  1.0,
+            ]), gl.STATIC_DRAW);
+
+            gl.enableVertexAttribArray(positionLoc);
+            gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+            // Initialize GPU texture target [2.2.1]
+            texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        }
+
+        // Handle WebGL context loss (e.g. memory pressure, tab backgrounding)
+        outputCanvas.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            gl = null;
+        });
+        outputCanvas.addEventListener('webglcontextrestored', () => {
+            initWebGL();
+        });
+
+        // --- GPU WebGL Compiler Helpers --- [1.1.2]
+        function compileShader(gl, source, type) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error("Shader compilation failed:", gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        function createProgram(gl, vs, fs) {
+            if (!vs || !fs) return null;
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error("Program link step failed:", gl.getProgramInfoLog(program));
+                gl.deleteProgram(program);
+                return null;
+            }
+            return program;
+        }
+
+        // Initialize camera stream
+        let loopStarted = false;
+        function startCamera() {
+            navigator.mediaDevices.getUserMedia(constraints)
             .then(stream => {
-                video.addEventListener('loadedmetadata', () => {
-                    requestAnimationFrame(processFrame);
-                });
+                initWebGL(); // Ensure WebGL context is initialized once stream is authorized
+                
+                // Remove listeners first to prevent accumulation on visibility toggles
+                video.removeEventListener('loadedmetadata', onMetadataLoaded);
+                video.removeEventListener('canplay', onMetadataLoaded);
+                video.removeEventListener('play', onMetadataLoaded);
+                video.addEventListener('loadedmetadata', onMetadataLoaded);
+                video.addEventListener('canplay', onMetadataLoaded);
+                video.addEventListener('play', onMetadataLoaded);
+                
                 video.srcObject = stream;
                 return video.play();
             })
-            .catch(fallbackErr => {
-                console.error("Camera access failed:", fallbackErr);
-                errorMessage.textContent = "Unable to start the camera. Please check your browser permissions.";
-                errorMessage.style.display = "block";
+            .catch(err => {
+                console.warn("Camera environment mode failed, falling back...", err);
+                return navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(stream => {
+                    initWebGL();
+                    video.removeEventListener('loadedmetadata', onMetadataLoaded);
+                    video.removeEventListener('canplay', onMetadataLoaded);
+                    video.removeEventListener('play', onMetadataLoaded);
+                    video.addEventListener('loadedmetadata', onMetadataLoaded);
+                    video.addEventListener('canplay', onMetadataLoaded);
+                    video.addEventListener('play', onMetadataLoaded);
+                    video.srcObject = stream;
+                    return video.play();
+                })
+                .catch(fallbackErr => {
+                    console.error("Camera access failed entirely:", fallbackErr);
+                    errorMessage.textContent = "Unable to start the camera. Please check your browser permissions.";
+                    errorMessage.style.display = "block";
+                });
             });
-        });
+        }
+
+        function onMetadataLoaded() {
+            if (!loopStarted) {
+                loopStarted = true;
+                requestAnimationFrame(processFrame);
+            }
+        }
+
+        // Shuts down physical camera capture stream when phone is locked or tab is hidden
+        function stopCamera() {
+            loopStarted = false; // Reset loop trigger [1.2.2]
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop()); // Physically powers down the camera sensor
+                video.srcObject = null;
+            }
+            video.removeEventListener('loadedmetadata', onMetadataLoaded);
+            video.removeEventListener('canplay', onMetadataLoaded);
+            video.removeEventListener('play', onMetadataLoaded);
+        }
+
+        // Start camera on page load
+        startCamera();
 
         // Repositioning target box logic in Uniformity mode (uses pointerdown for responsive touch)
         outputCanvas.addEventListener('pointerdown', (e) => {
@@ -595,6 +813,7 @@
 
         function updateTolerance(value, clickedButton) {
             currentTolerance = value;
+            currentToleranceSq = (currentTolerance * MAX_COLOR_DISTANCE) ** 2; // Pre-calculated squared tolerance
             document.querySelectorAll('.tolerance-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
@@ -628,27 +847,56 @@
 
         // Programmatic Fullscreen Mode Handler
         btnFullscreen.addEventListener('click', () => {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen()
-                .catch(err => {
-                    console.warn(`Fullscreen activation error: ${err.message}`);
-                });
+            const docEl = document.documentElement;
+            // Cross-browser/WebKit full screen capabilities checks [1.1.9, 1.2.9]
+            const requestFS = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+            const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                if (requestFS) {
+                    requestFS.call(docEl).catch(err => {
+                        console.warn(`Fullscreen activation error: ${err.message}`);
+                    });
+                } else {
+                    // Safe error overlay for iOS iPhone devices where element-fullscreen is unsupported
+                    errorMessage.textContent = "Fullscreen mode is not supported on this device or browser.";
+                    errorMessage.style.display = "block";
+                    setTimeout(() => { errorMessage.style.display = "none"; }, 3500);
+                }
             } else {
-                document.exitFullscreen();
+                if (exitFS) {
+                    exitFS.call(document);
+                }
             }
         });
 
-        // Synchronize full screen buttons glyph icon based on system state
-        document.addEventListener('fullscreenchange', () => {
-            if (document.fullscreenElement) {
+        // Synchronize full screen buttons glyph icon based on system state (including WebKit prefix listeners)
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+        function handleFullscreenChange() {
+            const isFS = document.fullscreenElement || document.webkitFullscreenElement;
+            if (isFS) {
                 btnFullscreen.innerHTML = '&#x2922;'; // exit fullscreen icon (diagonal arrows in)
             } else {
                 btnFullscreen.innerHTML = '&#x26F6;'; // enter fullscreen icon (square corners out)
+            }
+        }
+
+        // Page Visibility API Hook (Shuts down hardware camera when tab is minimized) [1.2.1, 1.2.2]
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopCamera(); // Shuts down camera capture stream
+            } else {
+                startCamera(); // Boots camera back up
             }
         });
 
         // Main Rendering Loop
         function processFrame(timestamp) {
+            // Stop loop if stream has been disconnected or camera was intentionally stopped
+            if (!video.srcObject || !loopStarted) return;
+
             requestAnimationFrame(processFrame);
 
             // --- Low-Power Frame Rate Throttler --- [8]
@@ -658,21 +906,22 @@
             }
             lastFrameTime = timestamp - (elapsed % FPS_INTERVAL); // Calibrates drift [8]
 
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            // WebKit/mobile optimization: check readiness >= 2 (HAVE_CURRENT_DATA) [1.1.9, 1.2.9]
+            if (video.readyState >= 2) {
+                // Safeguard against zero-dimension updates [1.1.9, 1.2.9]
+                if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
                 if (currentView === 'rgb') {
                     // --- View 1 (RGB Mode) Processing ---
-                    // Slices frames locally to extract center pixel averages
                     const vWidth = video.videoWidth;
                     const vHeight = video.videoHeight;
-                    
-                    processCanvas.width = vWidth;
-                    processCanvas.height = vHeight;
-                    processCtx.drawImage(video, 0, 0, vWidth, vHeight);
 
+                    // Draw only the 40x40 center region instead of the full frame
                     const startX = Math.floor((vWidth - SAMPLE_SIZE) / 2);
                     const startY = Math.floor((vHeight - SAMPLE_SIZE) / 2);
 
-                    const imgData = processCtx.getImageData(startX, startY, SAMPLE_SIZE, SAMPLE_SIZE);
+                    processCtx.drawImage(video, startX, startY, SAMPLE_SIZE, SAMPLE_SIZE, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+                    const imgData = processCtx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
                     const data = imgData.data;
                     const length = data.length;
 
@@ -712,82 +961,94 @@
                     }
 
                 } else if (currentView === 'uniformity') {
-                    // --- View 2 (Uniformity Mode) Processing ---
+                    // --- View 2 (Uniformity Mode) Processing via WebGL Shader --- [2.2.1]
+                    if (!gl) return;
+
                     const visualWidth = outputCanvas.clientWidth;
                     const visualHeight = outputCanvas.clientHeight;
 
-                    outputCanvas.width = visualWidth;
-                    outputCanvas.height = visualHeight;
-
-                    // --- Low-Power Resolution Optimization ---
-                    // Caps canvas width at 320px (down from 480px) to save 55% more calculations [2]
-                    const scaleWidth = 320; 
-                    const scaleHeight = Math.floor(320 * (visualHeight / visualWidth));
-
-                    processCanvas.width = scaleWidth;
-                    processCanvas.height = scaleHeight;
-
-                    // Render stream with center crop-to-fill
-                    drawImageCover(processCtx, video, 0, 0, scaleWidth, scaleHeight);
-
-                    // Coordinate mappings
-                    const centerX = Math.floor(normX * scaleWidth);
-                    const centerY = Math.floor(normY * scaleHeight);
-
-                    const startX = Math.max(0, Math.min(scaleWidth - SAMPLE_SIZE, Math.floor(centerX - SAMPLE_SIZE / 2)));
-                    const startY = Math.max(0, Math.min(scaleHeight - SAMPLE_SIZE, Math.floor(centerY - SAMPLE_SIZE / 2)));
-
-                    // Sample the target color inside the reticle
-                    const sampleData = processCtx.getImageData(startX, startY, SAMPLE_SIZE, SAMPLE_SIZE).data;
-                    const sampleLength = sampleData.length;
-
-                    let sumR = 0, sumG = 0, sumB = 0;
-                    for (let i = 0; i < sampleLength; i += 4) {
-                        sumR += sampleData[i];
-                        sumG += sampleData[i + 1];
-                        sumB += sampleData[i + 2];
+                    // Avoid GPU reallocation if canvas size hasn't changed
+                    if (outputCanvas.width !== visualWidth || outputCanvas.height !== visualHeight) {
+                        outputCanvas.width = visualWidth;
+                        outputCanvas.height = visualHeight;
+                        gl.viewport(0, 0, visualWidth, visualHeight);
                     }
 
-                    const pixelCount = sampleLength / 4;
-                    targetR = Math.round(sumR / pixelCount);
-                    targetG = Math.round(sumG / pixelCount);
-                    targetB = Math.round(sumB / pixelCount);
+                    // Compute aspect ratio once for both CPU sample and WebGL draw
+                    const imgRatio = video.videoWidth / video.videoHeight;
+                    const canvasRatio = visualWidth / visualHeight;
 
-                    // Image threshold array parsing
-                    const imgData = processCtx.getImageData(0, 0, scaleWidth, scaleHeight);
-                    const data = imgData.data;
-                    const length = data.length;
+                    // --- CPU Real-Time Target Color Extraction (Extremely Low Load) --- [2.2.1]
+                    // Skip if reticle hasn't moved and recent sample exists (re-sample at least once/sec for lighting changes)
+                    const needsResample = normX !== lastNormX || normY !== lastNormY || (timestamp - lastUniformitySampleTime >= 1000);
+                    if (needsResample) {
+                        lastNormX = normX;
+                        lastNormY = normY;
+                        lastUniformitySampleTime = timestamp;
 
-                    for (let i = 0; i < length; i += 4) {
-                        const r = data[i];
-                        const g = data[i + 1];
-                        const b = data[i + 2];
-
-                        const colorDistance = Math.sqrt(
-                            (r - targetR) ** 2 +
-                            (g - targetG) ** 2 +
-                            (b - targetB) ** 2
-                        );
-
-                        const normalizedDistance = colorDistance / MAX_COLOR_DISTANCE;
-
-                        if (normalizedDistance <= currentTolerance) {
-                            // Match: Keep original camera pixel unchanged
+                        let sx, sy, sw, sh;
+                        if (imgRatio > canvasRatio) {
+                            sh = video.videoHeight;
+                            sw = sh * canvasRatio;
+                            sx = (video.videoWidth - sw) / 2;
+                            sy = 0;
                         } else {
-                            // Non-Match: Draw Hot Pink mask
-                            data[i] = 255;
-                            data[i + 1] = 105;
-                            data[i + 2] = 180;
+                            sw = video.videoWidth;
+                            sh = sw / canvasRatio;
+                            sx = 0;
+                            sy = (video.videoHeight - sh) / 2;
                         }
+
+                        const cropX = sx + normX * sw;
+                        const cropY = sy + normY * sh;
+                        const sampleX = Math.max(0, Math.min(video.videoWidth - UNIFORMITY_SAMPLE_SIZE, Math.floor(cropX - UNIFORMITY_SAMPLE_SIZE / 2)));
+                        const sampleY = Math.max(0, Math.min(video.videoHeight - UNIFORMITY_SAMPLE_SIZE, Math.floor(cropY - UNIFORMITY_SAMPLE_SIZE / 2)));
+
+                        sampleCtx.drawImage(video, sampleX, sampleY, UNIFORMITY_SAMPLE_SIZE, UNIFORMITY_SAMPLE_SIZE, 0, 0, UNIFORMITY_SAMPLE_SIZE, UNIFORMITY_SAMPLE_SIZE);
+                        const sampleData = sampleCtx.getImageData(0, 0, UNIFORMITY_SAMPLE_SIZE, UNIFORMITY_SAMPLE_SIZE).data;
+                        const sampleLength = sampleData.length;
+
+                        let sumR = 0, sumG = 0, sumB = 0;
+                        for (let i = 0; i < sampleLength; i += 4) {
+                            sumR += sampleData[i];
+                            sumG += sampleData[i + 1];
+                            sumB += sampleData[i + 2];
+                        }
+
+                        const pixelCount = sampleLength / 4;
+                        targetR = Math.round(sumR / pixelCount);
+                        targetG = Math.round(sumG / pixelCount);
+                        targetB = Math.round(sumB / pixelCount);
                     }
 
-                    processCtx.putImageData(imgData, 0, 0);
-                    outputCtx.drawImage(processCanvas, 0, 0, visualWidth, visualHeight);
+                    // --- WebGL GPU Draw Call --- [2.2.1]
+                    let scaleX = 1.0;
+                    let scaleY = 1.0;
+                    if (imgRatio > canvasRatio) {
+                        scaleX = canvasRatio / imgRatio;
+                    } else {
+                        scaleY = imgRatio / canvasRatio;
+                    }
+
+                    gl.useProgram(glProgram);
+
+                    // Upload live camera frame as a texture to the GPU [2.2.1]
+                    gl.bindTexture(gl.TEXTURE_2D, texture);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+
+                    // Set Shader Uniforms [2.2.5]
+                    gl.uniform2f(uScaleLoc, scaleX, scaleY);
+                    gl.uniform3f(uTargetColorLoc, targetR / 255, targetG / 255, targetB / 255);
+                    // Multiply by 3 to compensate for removed shader division (distSq <= 3 * tolerance^2)
+                    gl.uniform1f(uToleranceSqLoc, 3 * currentToleranceSq / MAX_COLOR_DISTANCE_SQ);
+
+                    // Draw the full-screen cropped quad [2.2.1]
+                    gl.drawArrays(gl.TRIANGLES, 0, 6);
                 }
             }
         }
 
-        // Fast update executed every frame for chart height
+        // Fast update executed every frame to update bar heights directly
         function updateBars(r, g, b) {
             barR.style.height = `${r}%`;
             barG.style.height = `${g}%`;
@@ -801,26 +1062,7 @@
             valB.textContent = `${Math.round(b)}%`;
         }
 
-        // Helper function for aspect-ratio matching crops
-        function drawImageCover(ctx, img, x, y, w, h) {
-            const imgRatio = img.videoWidth / img.videoHeight;
-            const canvasRatio = w / h;
-            let sx, sy, sw, sh;
 
-            if (imgRatio > canvasRatio) {
-                sh = img.videoHeight;
-                sw = sh * canvasRatio;
-                sx = (img.videoWidth - sw) / 2;
-                sy = 0;
-            } else {
-                sw = img.videoWidth;
-                sh = sw / canvasRatio;
-                sx = 0;
-                sy = (img.videoHeight - sh) / 2;
-            }
-
-            ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-        }
     </script>
 </body>
 </html>
