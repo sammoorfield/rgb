@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RGB Color Sampler</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Camera feed container (top 35% of screen) */
+        .video-container {
+            position: relative;
+            width: 100%;
+            height: 35vh;
+            background-color: #000;
+        }
+
+        /* Video element with hardware-accelerated SVG filter applied */
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: url(#white-balance-filter);
+            will-change: filter;
+        }
+
+        /* Center sampling target zone */
+        #sample-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            border: 2px dashed #ffffff;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            box-sizing: border-box;
+        }
+
+        /* Calibration Toggle Button */
+        .calibrate-btn {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            background-color: rgba(0, 0, 0, 0.65);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+            user-select: none;
+            -webkit-user-select: none;
+            z-index: 5;
+        }
+
+        .calibrate-btn:active {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-color: #ffffff;
+        }
+
+        /* Solid white highlight styling when locked */
+        .calibrate-btn.locked {
+            background-color: #ffffff;
+            color: #121212;
+            border-color: #ffffff;
+        }
+
+        /* RGB Bars container */
+        .chart-container {
+            display: flex;
+            justify-content: space-around;
+            align-items: stretch;
+            width: 100%;
+            flex-grow: 1;
+            padding: 20px 10px;
+            box-sizing: border-box;
+            background-color: #121212;
+            position: relative; /* Anchors the absolute grid overlay */
+        }
+
+        .bar-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100%;
+            width: 25%;
+            max-width: 100px;
+            position: relative;
+            z-index: 1; /* Sits below the grid lines */
+        }
+
+        .bar-value {
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .bar-track {
+            flex-grow: 1;
+            width: 40px;
+            background-color: transparent; /* Empty area invisible */
+            border-radius: 6px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        .bar {
+            width: 100%;
+            height: 0%;
+            border-radius: 3px;
+        }
+
+        /* Updated color configurations */
+        #bar-r { background-color: #fd4545; }
+        #bar-g { background-color: #45c045; }
+        #bar-b { background-color: #3375fc; }
+
+        .label {
+            font-size: 0.9rem;
+            margin-top: 10px;
+            color: #aaaaaa;
+            font-weight: 500;
+        }
+
+        /* Background Grid Overlay styling */
+        .grid-overlay {
+            position: absolute;
+            top: 20px;    /* Matches chart-container padding-top */
+            bottom: 20px; /* Matches chart-container padding-bottom */
+            left: 10px;   /* Matches chart-container padding-left */
+            right: 10px;  /* Matches chart-container padding-right */
+            display: flex;
+            flex-direction: column;
+            pointer-events: none;
+            z-index: 3;   /* Sits on top of the bars to maintain uniform color */
+        }
+
+        /* Placeholders to mirror the height and margins of vertical column text elements */
+        .grid-value-placeholder {
+            height: 1.1rem;
+            margin-bottom: 10px;
+            visibility: hidden;
+        }
+
+        .grid-label-placeholder {
+            height: 0.9rem;
+            margin-top: 10px;
+            visibility: hidden;
+        }
+
+        .grid-track-area {
+            flex-grow: 1;
+            position: relative;
+            width: 100%;
+        }
+
+        .grid-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            border-top: 1px solid rgba(255, 255, 255, 0.45); /* Solid, uniform white gridline */
+        }
+
+        #error-message {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff4d4d;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 10px 20px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.9rem;
+            z-index: 10;
+            display: none;
+            width: 80%;
+            max-width: 400px;
+        }
+
+        /* SVG helper styled offscreen to prevent layout shift */
+        .svg-filter-holder {
+            position: absolute;
+            width: 0;
+            height: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SVG filter container used to dynamically adjust video color matrix -->
+    <svg class="svg-filter-holder">
+        <defs>
+            <filter id="white-balance-filter">
+                <feColorMatrix id="webcam-matrix" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" />
+            </filter>
+        </defs>
+    </svg>
+
+    <div class="video-container">
+        <video id="webcam" autoplay playsinline muted></video>
+        <div id="sample-box"></div>
+        <button id="calibrate-btn" class="calibrate-btn">Set White</button>
+    </div>
+
+    <div class="chart-container">
+        <!-- Background Grid Overlay (draws on top of columns to maintain constant color) -->
+        <div class="grid-overlay">
+            <div class="grid-value-placeholder"></div>
+            <div class="grid-track-area">
+                <div class="grid-line" style="bottom: 25%;"></div>
+                <div class="grid-line" style="bottom: 50%;"></div>
+                <div class="grid-line" style="bottom: 75%;"></div>
+                <div class="grid-line" style="bottom: 100%;"></div>
+            </div>
+            <div class="grid-label-placeholder"></div>
+        </div>
+
+        <!-- Red -->
+        <div class="bar-wrapper">
+            <div class="bar-value" id="val-r">0%</div>
+            <div class="bar-track">
+                <div class="bar" id="bar-r"></div>
+            </div>
+            <span class="label">R</span>
+        </div>
+
+        <!-- Green -->
+        <div class="bar-wrapper">
+            <div class="bar-value" id="val-g">0%</div>
+            <div class="bar-track">
+                <div class="bar" id="bar-g"></div>
+            </div>
+            <span class="label">G</span>
+        </div>
+
+        <!-- Blue -->
+        <div class="bar-wrapper">
+            <div class="bar-value" id="val-b">0%</div>
+            <div class="bar-track">
+                <div class="bar" id="bar-b"></div>
+            </div>
+            <span class="label">B</span>
+        </div>
+    </div>
+
+    <div id="error-message"></div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const errorMessage = document.getElementById('error-message');
+        const calibrateBtn = document.getElementById('calibrate-btn');
+        const webcamMatrix = document.getElementById('webcam-matrix');
+        
+        const barR = document.getElementById('bar-r');
+        const barG = document.getElementById('bar-g');
+        const barB = document.getElementById('bar-b');
+
+        const valR = document.getElementById('val-r');
+        const valG = document.getElementById('val-g');
+        const valB = document.getElementById('val-b');
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Exponential Moving Average smoothing factor
+        const SMOOTHING_FACTOR = 0.12; 
+
+        // Smoothed raw measurements
+        let smoothedR = 128;
+        let smoothedG = 128;
+        let smoothedB = 128;
+
+        // Calibration baseline states
+        let isCalibrated = false;
+        let gainR = 1.0;
+        let gainG = 1.0;
+        let gainB = 1.0;
+
+        const SAMPLE_SIZE = 40; 
+
+        // Variable to track the last time the percentage text was updated
+        // Initialized to -1000 to trigger immediately on the very first frame
+        let lastTextUpdateTime = -1000;
+
+        // Initialize video stream
+        navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: 'environment',
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            },
+            audio: false
+        })
+        .then(stream => {
+            video.srcObject = stream;
+            video.addEventListener('loadedmetadata', () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                requestAnimationFrame(processFrame);
+            });
+        })
+        .catch(err => {
+            console.error("Camera access error:", err);
+            errorMessage.textContent = "Unable to access the camera. Make sure you grant permissions and are serving over HTTPS.";
+            errorMessage.style.display = "block";
+        });
+
+        // Click handler for calibration toggle
+        calibrateBtn.addEventListener('click', () => {
+            if (!isCalibrated) {
+                const avg = (smoothedR + smoothedG + smoothedB) / 3;
+
+                gainR = avg / (smoothedR > 0 ? smoothedR : 1);
+                gainG = avg / (smoothedG > 0 ? smoothedG : 1);
+                gainB = avg / (smoothedB > 0 ? smoothedB : 1);
+
+                const filterValues = `${gainR} 0 0 0 0  0 ${gainG} 0 0 0  0 0 ${gainB} 0 0  0 0 0 1 0`;
+                webcamMatrix.setAttribute('values', filterValues);
+
+                isCalibrated = true;
+                calibrateBtn.textContent = 'Reset';
+                calibrateBtn.classList.add('locked');
+            } else {
+                gainR = 1.0;
+                gainG = 1.0;
+                gainB = 1.0;
+
+                webcamMatrix.setAttribute('values', '1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0');
+
+                isCalibrated = false;
+                calibrateBtn.textContent = 'Set White';
+                calibrateBtn.classList.remove('locked');
+            }
+        });
+
+        // Loop execution function
+        function processFrame(timestamp) {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const startX = Math.floor((canvas.width - SAMPLE_SIZE) / 2);
+                const startY = Math.floor((canvas.height - SAMPLE_SIZE) / 2);
+
+                const imgData = ctx.getImageData(startX, startY, SAMPLE_SIZE, SAMPLE_SIZE);
+                const data = imgData.data;
+                const length = data.length;
+
+                let sumR = 0;
+                let sumG = 0;
+                let sumB = 0;
+
+                for (let i = 0; i < length; i += 4) {
+                    sumR += data[i];     
+                    sumG += data[i + 1]; 
+                    sumB += data[i + 2]; 
+                }
+
+                const pixelCount = length / 4;
+                const rawR = sumR / pixelCount;
+                const rawG = sumG / pixelCount;
+                const rawB = sumB / pixelCount;
+
+                // Smooth raw sensor data to prevent layout jittering
+                smoothedR = (SMOOTHING_FACTOR * rawR) + ((1 - SMOOTHING_FACTOR) * smoothedR);
+                smoothedG = (SMOOTHING_FACTOR * rawG) + ((1 - SMOOTHING_FACTOR) * smoothedG);
+                smoothedB = (SMOOTHING_FACTOR * rawB) + ((1 - SMOOTHING_FACTOR) * smoothedB);
+
+                // Apply gains (either 1.0 or calculated white-balance gains)
+                const calibratedR = Math.min(255, smoothedR * gainR);
+                const calibratedG = Math.min(255, smoothedG * gainG);
+                const calibratedB = Math.min(255, smoothedB * gainB);
+
+                // Convert to a 0-100 percentage scale
+                const pctR = (calibratedR / 255) * 100;
+                const pctG = (calibratedG / 255) * 100;
+                const pctB = (calibratedB / 255) * 100;
+
+                // Update the visual height of the charts on every frame (smooth animation)
+                updateBars(pctR, pctG, pctB);
+
+                // Throttles the numeric text updates to once per 1000 milliseconds (1 second)
+                if (timestamp - lastTextUpdateTime >= 1000) {
+                    updateText(pctR, pctG, pctB);
+                    lastTextUpdateTime = timestamp;
+                }
+            }
+
+            requestAnimationFrame(processFrame);
+        }
+
+        // Fast update executed every frame to update bar heights directly
+        function updateBars(r, g, b) {
+            barR.style.height = `${r}%`;
+            barG.style.height = `${g}%`;
+            barB.style.height = `${b}%`;
+        }
+
+        // Throttled update executed once per second for text labels
+        function updateText(r, g, b) {
+            valR.textContent = `${Math.round(r)}%`;
+            valG.textContent = `${Math.round(g)}%`;
+            valB.textContent = `${Math.round(b)}%`;
+        }
+    </script>
+</body>
+</html>
