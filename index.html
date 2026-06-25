@@ -173,7 +173,7 @@
             align-items: stretch;
             width: 100%;
             flex-grow: 1; /* Stretch to fill remaining height in RGB mode */
-            padding: 8px 10px 4px 10px; /* Reduced bottom padding below labels from 10px to 4px */
+            padding: 8px 10px 4px 10px; /* Reduced vertical padding */
             box-sizing: border-box;
             background-color: #121212;
             position: relative;
@@ -192,7 +192,7 @@
 
         .bar-value {
             font-size: 1.1rem;
-            margin-bottom: 12px; /* Increased vertical spacing below numbers from 6px to 12px */
+            margin-bottom: 12px; /* Increased vertical spacing below numbers */
             font-weight: 600;
             font-variant-numeric: tabular-nums;
         }
@@ -221,7 +221,7 @@
 
         .label {
             font-size: 0.9rem;
-            margin-top: 6px;
+            margin-top: 6px; /* Reduced spacing to maximize track height */
             color: #aaaaaa;
             font-weight: 500;
         }
@@ -297,7 +297,7 @@
 
         .nav-btn.active {
             color: #ffffff;
-            background-color: rgba(255, 255, 255, 0.1); /* Subtle native highlight instead of block border */
+            background-color: rgba(255, 255, 255, 0.05); /* Subtle native highlight instead of block border */
         }
 
         /* Central dividing line between navigation views */
@@ -476,11 +476,17 @@
         const processCanvas = document.createElement('canvas');
         const processCtx = processCanvas.getContext('2d', { willReadFrequently: true });
 
+        // --- Low-Power Hardware Optimization Configuration --- [8]
+        const TARGET_FPS = 6; // Throttles calculations from 60 FPS down to 6 FPS (90% CPU savings) [8]
+        const FPS_INTERVAL = 1000 / TARGET_FPS;
+        let lastFrameTime = 0;
+
         // Navigation state: 'rgb' or 'uniformity'
         let currentView = 'rgb';
 
         // --- View 1 (RGB) States ---
-        const SMOOTHING_FACTOR = 0.12; 
+        // Raised to 0.60 to account for lower FPS, allowing charts to settle within 0.6 seconds
+        const SMOOTHING_FACTOR = 0.60; 
         let smoothedR = 128;
         let smoothedG = 128;
         let smoothedB = 128;
@@ -643,6 +649,15 @@
 
         // Main Rendering Loop
         function processFrame(timestamp) {
+            requestAnimationFrame(processFrame);
+
+            // --- Low-Power Frame Rate Throttler --- [8]
+            const elapsed = timestamp - lastFrameTime;
+            if (elapsed < FPS_INTERVAL) {
+                return; // Skips processing if requested interval hasn't elapsed [8]
+            }
+            lastFrameTime = timestamp - (elapsed % FPS_INTERVAL); // Calibrates drift [8]
+
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 if (currentView === 'rgb') {
                     // --- View 1 (RGB Mode) Processing ---
@@ -704,9 +719,10 @@
                     outputCanvas.width = visualWidth;
                     outputCanvas.height = visualHeight;
 
-                    // Caps rendering resolution at 480px width for fast mobile processing
-                    const scaleWidth = 480;
-                    const scaleHeight = Math.floor(480 * (visualHeight / visualWidth));
+                    // --- Low-Power Resolution Optimization ---
+                    // Caps canvas width at 320px (down from 480px) to save 55% more calculations [2]
+                    const scaleWidth = 320; 
+                    const scaleHeight = Math.floor(320 * (visualHeight / visualWidth));
 
                     processCanvas.width = scaleWidth;
                     processCanvas.height = scaleHeight;
@@ -769,8 +785,6 @@
                     outputCtx.drawImage(processCanvas, 0, 0, visualWidth, visualHeight);
                 }
             }
-
-            requestAnimationFrame(processFrame);
         }
 
         // Fast update executed every frame for chart height
