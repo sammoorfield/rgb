@@ -118,21 +118,48 @@
         }
 
         .calibrate-btn.locked {
-            background-color: #121212;
+            background-color: transparent;
             color: #ffffff;
             border-color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.6);
         }
 
-        .calibrate-btn.locked:active {
-            background-color: #2a2a2a;
+        /* Normalize button — transparent background, white border & text */
+        .norm-btn {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background-color: transparent;
+            color: #ffffff;
+            border: 1px solid #ffffff;
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            z-index: 5;
+        }
+
+        .norm-btn:active {
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .norm-btn.active {
+            background-color: #ffffff;
+            color: #121212;
             border-color: #ffffff;
-        }
-
-        .calibrate-btn:focus {
-            outline: none;
-        }
-        .calibrate-btn::-moz-focus-inner {
-            border: 0;
+            text-shadow: none;
+            box-shadow: none;
         }
 
         /* Generic control dock container */
@@ -241,14 +268,20 @@
         }
 
         #bar-r { background-color: #fd4545; }
-        #bar-g { background-color: #45c045; }
+        #bar-g { background-color: #00b140; }
         #bar-b { background-color: #3375fc; }
+        #bar-q { background-color: #888888; }
 
         .label {
             font-size: 0.85rem; /* Marginally downscaled for absolute safety on small viewports */
             margin-top: 6px; /* Reduced spacing to maximize track height */
             color: #aaaaaa;
             font-weight: 500;
+        }
+
+        #label-q {
+            cursor: pointer;
+            user-select: none;
         }
 
         /* Background Grid Overlay styling */
@@ -326,7 +359,7 @@
             background-color: rgba(255, 255, 255, 0.05); /* Subtle native highlight instead of block border */
         }
 
-        /* Central dividing line between navigation views */
+        /* Central dividing lines between navigation views */
         #nav-rgb {
             border-right: 1px solid #2d2d2d;
         }
@@ -420,6 +453,7 @@
         <canvas id="output-canvas"></canvas>
         <div id="sample-box"></div>
         <button id="calibrate-btn" class="calibrate-btn view-rgb-only">Set White</button>
+        <button id="norm-btn" class="norm-btn view-rgb-only">Normalize</button>
     </div>
 
     <!-- Middle portion: Active view controls -->
@@ -464,6 +498,15 @@
             </div>
             <span class="label">B</span>
         </div>
+
+        <!-- Quality -->
+        <div class="bar-wrapper">
+            <div class="bar-value" id="val-q">0%</div>
+            <div class="bar-track">
+                <div class="bar" id="bar-q"></div>
+            </div>
+            <span class="label" id="label-q">Chroma</span>
+        </div>
     </div>
 
     <!-- 2. Uniformity View Controls (Tolerance buttons) -->
@@ -490,6 +533,7 @@
         const sampleBox = document.getElementById('sample-box');
         const errorMessage = document.getElementById('error-message');
         const calibrateBtn = document.getElementById('calibrate-btn');
+        const normBtn = document.getElementById('norm-btn');
         const webcamMatrix = document.getElementById('webcam-matrix');
         const btnFullscreen = document.getElementById('btn-fullscreen');
         
@@ -500,6 +544,10 @@
         const valR = document.getElementById('val-r');
         const valG = document.getElementById('val-g');
         const valB = document.getElementById('val-b');
+
+        const barQ = document.getElementById('bar-q');
+        const valQ = document.getElementById('val-q');
+        const labelQ = document.getElementById('label-q');
 
         const btnLow = document.getElementById('btn-low');
         const btnMed = document.getElementById('btn-med');
@@ -543,6 +591,21 @@
         let gainB = 1.0;
 
         let lastTextUpdateTime = -1000; // Limits percentage numbers updates to 1s
+
+        // Quality targets for the 4th bar — values in 0-100 space
+        const MAX_DIST_100 = Math.sqrt(3 * 100 * 100);
+        const QUALITY_TARGETS = [
+            { color: '#00ff00', label: 'Digi', scoreFn: n => n[1] - (n[0] - 10) - (n[2] - 10) },
+            { color: '#00b140', label: 'Chroma', scoreFn: n => {
+                if (n[1] < n[2]) return 0;
+                const dr = n[0], dg = n[1] - 69.4, db = n[2] - 25.1;
+                const raw = 100 - Math.sqrt(dr*dr + dg*dg + db*db) / MAX_DIST_100 * 100;
+                return raw - n[0];
+            }},
+            { color: '#3375fc', label: 'Blue', scoreFn: n => n[2] - (n[0] - 10) - (n[1] - 10) }
+        ];
+        let normalizationEnabled = false;
+        let selectedTarget = 1; // index into QUALITY_TARGETS (starts at Chroma Green)
 
         // --- View 2 (Uniformity / GPU WebGL Mode) States --- [2.2.1]
         let normX = 0.5; // Normalized target coordinates (starts dead center)
@@ -824,6 +887,19 @@
         navRgb.addEventListener('click', () => setView('rgb'));
         navUniformity.addEventListener('click', () => setView('uniformity'));
 
+        normBtn.addEventListener('click', () => {
+            normalizationEnabled = !normalizationEnabled;
+            normBtn.classList.toggle('active');
+            normBtn.textContent = normalizationEnabled ? 'Normalized' : 'Normalize';
+        });
+
+        // Click quality bar area to cycle target colour
+        const qualityBarWrapper = labelQ.closest('.bar-wrapper');
+        const TARGET_CYCLE = { 1: 0, 0: 2, 2: 1 }; // CG → DG → CB → CG
+        qualityBarWrapper.addEventListener('click', () => {
+            selectedTarget = TARGET_CYCLE[selectedTarget];
+        });
+
         function setView(view) {
             currentView = view;
             if (view === 'rgb') {
@@ -951,12 +1027,47 @@
                     const pctG = (calibratedG / 255) * 100;
                     const pctB = (calibratedB / 255) * 100;
 
+                    // Quality bar — compute per-target score with channel penalty, pick best
+                    // Convert calibrated values to 0-100 space
+                    let nR = calibratedR / 255 * 100;
+                    let nG = calibratedG / 255 * 100;
+                    let nB = calibratedB / 255 * 100;
+                    // When enabled, normalize so the highest channel is at 100
+                    if (normalizationEnabled) {
+                        const maxVal = Math.max(nR, nG, nB);
+                        if (maxVal > 0) {
+                            const scale = 100 / maxVal;
+                            nR *= scale;
+                            nG *= scale;
+                            nB *= scale;
+                        }
+                    }
+                    const n = [nR, nG, nB];
+
+                    // Use normalized values for bars when enabled
+                    const dispR = normalizationEnabled ? nR : pctR;
+                    const dispG = normalizationEnabled ? nG : pctG;
+                    const dispB = normalizationEnabled ? nB : pctB;
+
+                    // Quality bar — compute score against the selected target
+                    const t = QUALITY_TARGETS[selectedTarget];
+                    const finalScore = Math.max(0, Math.min(100, t.scoreFn(n)));
+
                     // Instantly update chart heights
-                    updateBars(pctR, pctG, pctB);
+                    updateBars(dispR, dispG, dispB);
+                    labelQ.textContent = t.label;
+                    labelQ.style.color = t.color;
+                    if (finalScore > 25) {
+                        barQ.style.height = `${finalScore}%`;
+                        barQ.style.background = t.color;
+                    } else {
+                        barQ.style.height = '0%';
+                    }
 
                     // Throttles numerical displays to 1s
                     if (timestamp - lastTextUpdateTime >= 1000) {
-                        updateText(pctR, pctG, pctB);
+                        updateText(dispR, dispG, dispB);
+                        valQ.textContent = `${Math.round(finalScore)}`;
                         lastTextUpdateTime = timestamp;
                     }
 
@@ -980,7 +1091,7 @@
 
                     // --- CPU Real-Time Target Color Extraction (Extremely Low Load) --- [2.2.1]
                     // Skip if reticle hasn't moved and recent sample exists (re-sample at least once/sec for lighting changes)
-                    const needsResample = normX !== lastNormX || normY !== lastNormY || (timestamp - lastUniformitySampleTime >= 1000);
+                    const needsResample = normX !== lastNormX || normY !== lastNormY || (timestamp - lastUniformitySampleTime >= 500);
                     if (needsResample) {
                         lastNormX = normX;
                         lastNormY = normY;
