@@ -593,14 +593,12 @@
         let lastTextUpdateTime = -1000; // Limits percentage numbers updates to 1s
 
         // Quality targets for the 4th bar — values in 0-100 space
-        const MAX_DIST_100 = Math.sqrt(3 * 100 * 100);
         const QUALITY_TARGETS = [
             { color: '#00ff00', label: 'Digi', scoreFn: n => n[1] - (n[0] - 10) - (n[2] - 10) },
             { color: '#00b140', label: 'Chroma', scoreFn: n => {
                 if (n[1] < n[2]) return 0;
-                const dr = n[0], dg = n[1] - 69.4, db = n[2] - 25.1;
-                const raw = 100 - Math.sqrt(dr*dr + dg*dg + db*db) / MAX_DIST_100 * 100;
-                return raw - n[0];
+                const idealB = n[1] * 0.36;
+                return Math.max(0, n[1] - Math.max(0, n[0] - 10) - Math.abs(n[2] - idealB));
             }},
             { color: '#3375fc', label: 'Blue', scoreFn: n => n[2] - (n[0] - 10) - (n[1] - 10) }
         ];
