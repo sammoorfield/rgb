@@ -1057,12 +1057,8 @@
                     updateBars(dispR, dispG, dispB);
                     labelQ.textContent = t.label;
                     labelQ.style.color = t.color;
-                    if (finalScore > 25) {
-                        barQ.style.height = `${finalScore}%`;
-                        barQ.style.background = t.color;
-                    } else {
-                        barQ.style.height = '0%';
-                    }
+                    barQ.style.height = `${finalScore}%`;
+                    barQ.style.background = t.color;
 
                     // Throttles numerical displays to 1s
                     if (timestamp - lastTextUpdateTime >= 1000) {
