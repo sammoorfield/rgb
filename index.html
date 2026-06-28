@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chroma Key Analysis</title>
-	<link rel="icon" type="image/x-icon" href="favicon.ico">
+    <title>Camera Analyzer Suite</title>
     <style>
         /* Global box reset to prevent padding/border calculations from causing viewport overflows */
         *, *:before, *:after {
@@ -266,6 +265,7 @@
             width: 100%;
             height: 0%; /* Transitions smoothly via standard JS style.height updates */
             border-radius: 3px;
+            transition: height 0.1s ease, bottom 0.1s ease;
         }
 
         #bar-r { background-color: #fd4545; }
@@ -365,7 +365,7 @@
             border-right: 1px solid #2d2d2d;
         }
 
-        /* Compact Fullscreen Toggle Button on the far right */
+        /* Compact Fullscreen Toggle Button on the far left */
         .fullscreen-btn {
             width: 48px;
             height: 100%;
@@ -377,15 +377,49 @@
             align-items: center;
             justify-content: center;
             font-size: 1.1rem;
-            border-left: 1px solid #2d2d2d; /* Separating dividing line */
+            border-right: 1px solid #2d2d2d;
             user-select: none;
             -webkit-user-select: none;
-            transition: color 0.2s;
+            transition: color 0.2s, background-color 0.2s;
             flex-shrink: 0;
+        }
+        .star-btn.active {
+            color: #ffffff;
+            background-color: rgba(255, 255, 255, 0.05);
         }
 
         .fullscreen-btn:active {
             color: #ffffff;
+        }
+        .fullscreen-btn.active {
+            color: #ffffff;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        /* Star rating toggle on the far right */
+        .star-btn {
+            width: 48px;
+            height: 100%;
+            border: none;
+            background-color: transparent;
+            color: #aaaaaa;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            border-left: 1px solid #2d2d2d;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: color 0.2s, background-color 0.2s;
+            flex-shrink: 0;
+        }
+        .star-btn.active {
+            color: #ffffff;
+        }
+
+        /* Hide quality bar when rating is disabled */
+        .rating-hidden .bar-wrapper:last-child {
+            display: none !important;
         }
 
         /* Display Toggle Helper Classes based on the Active Mode of the Body */
@@ -460,7 +494,7 @@
     <!-- Middle portion: Active view controls -->
     
     <!-- 1. RGB View Controls (Bar charts) -->
-    <div class="chart-container view-rgb-only">
+    <div class="chart-container view-rgb-only rating-hidden">
         <div class="grid-overlay">
             <div class="grid-value-placeholder"></div>
             <div class="grid-track-area">
@@ -479,7 +513,7 @@
             <div class="bar-track">
                 <div class="bar" id="bar-r"></div>
             </div>
-            <span class="label">R</span>
+            <span class="label" id="label-r">R</span>
         </div>
 
         <!-- Green -->
@@ -488,7 +522,7 @@
             <div class="bar-track">
                 <div class="bar" id="bar-g"></div>
             </div>
-            <span class="label">G</span>
+            <span class="label" id="label-g">G</span>
         </div>
 
         <!-- Blue -->
@@ -497,7 +531,7 @@
             <div class="bar-track">
                 <div class="bar" id="bar-b"></div>
             </div>
-            <span class="label">B</span>
+            <span class="label" id="label-b">B</span>
         </div>
 
         <!-- Quality -->
@@ -521,9 +555,10 @@
 
     <!-- Navigation Bar at the absolute bottom -->
     <div class="nav-container">
+        <button id="btn-fullscreen" class="fullscreen-btn">&#x26F6;</button> <!-- Fullscreen icon button -->
         <button id="nav-rgb" class="nav-btn active">RGB</button>
         <button id="nav-uniformity" class="nav-btn">Uniformity</button>
-        <button id="btn-fullscreen" class="fullscreen-btn">&#x26F6;</button> <!-- Fullscreen icon button -->
+        <button id="btn-star" class="star-btn view-rgb-only">&#9733;</button> <!-- Rating toggle button -->
     </div>
 
     <div id="error-message"></div>
@@ -537,6 +572,7 @@
         const normBtn = document.getElementById('norm-btn');
         const webcamMatrix = document.getElementById('webcam-matrix');
         const btnFullscreen = document.getElementById('btn-fullscreen');
+        const btnStar = document.getElementById('btn-star');
         
         const barR = document.getElementById('bar-r');
         const barG = document.getElementById('bar-g');
@@ -549,6 +585,11 @@
         const barQ = document.getElementById('bar-q');
         const valQ = document.getElementById('val-q');
         const labelQ = document.getElementById('label-q');
+
+        const labelR = document.getElementById('label-r');
+        const labelG = document.getElementById('label-g');
+        const labelB = document.getElementById('label-b');
+        const chartContainer = document.querySelector('.chart-container');
 
         const btnLow = document.getElementById('btn-low');
         const btnMed = document.getElementById('btn-med');
@@ -595,16 +636,37 @@
 
         // Quality targets for the 4th bar — values in 0-100 space
         const QUALITY_TARGETS = [
-            { color: '#00ff00', label: 'Digi', scoreFn: n => n[1] - (n[0] - 10) - (n[2] - 10) },
             { color: '#00b140', label: 'Chroma', scoreFn: n => {
                 if (n[1] < n[2]) return 0;
                 const idealB = n[1] * 0.36;
                 return Math.max(0, n[1] - Math.max(0, n[0] - 10) - Math.abs(n[2] - idealB));
             }},
-            { color: '#3375fc', label: 'Blue', scoreFn: n => n[2] - (n[0] - 10) - (n[1] - 10) }
+            { color: '#00ff00', label: 'Digi', scoreFn: n => n[1] - (n[0] - 10) - (n[2] - 10) },
+            { color: '#0047BB', label: 'Chroma', scoreFn: n => {
+                if (n[2] < n[1]) return 0;
+                const idealG = n[2] * 0.38;
+                return Math.max(0, n[2] - Math.max(0, n[0] - 10) - Math.abs(n[1] - idealG));
+            }},
+            { color: '#3375fc', label: 'Digi', scoreFn: n => n[2] - (n[0] - 10) - (n[1] - 10) }
         ];
         let normalizationEnabled = false;
-        let selectedTarget = 1; // index into QUALITY_TARGETS (starts at Chroma Green)
+        let selectedTarget = 0; // index into QUALITY_TARGETS (starts at Chroma Green)
+        let hsvMode = false;
+
+        function rgbToHsv(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const v = max * 100;
+            const s = max === 0 ? 0 : (max - min) / max * 100;
+            let h = 0;
+            if (max !== min) {
+                const d = max - min;
+                if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+                else if (max === g) h = ((b - r) / d + 2) * 60;
+                else h = ((r - g) / d + 4) * 60;
+            }
+            return { h, s, v };
+        }
 
         // --- View 2 (Uniformity / GPU WebGL Mode) States --- [2.2.1]
         let normX = 0.5; // Normalized target coordinates (starts dead center)
@@ -883,7 +945,14 @@
         }
 
         // Navigation Menu Click Handlers
-        navRgb.addEventListener('click', () => setView('rgb'));
+        navRgb.addEventListener('click', () => {
+            if (currentView !== 'rgb') {
+                setView('rgb');
+                if (hsvMode) toggleHsv();
+            } else {
+                toggleHsv();
+            }
+        });
         navUniformity.addEventListener('click', () => setView('uniformity'));
 
         normBtn.addEventListener('click', () => {
@@ -894,10 +963,53 @@
 
         // Click quality bar area to cycle target colour
         const qualityBarWrapper = labelQ.closest('.bar-wrapper');
-        const TARGET_CYCLE = { 1: 0, 0: 2, 2: 1 }; // CG → DG → CB → CG
         qualityBarWrapper.addEventListener('click', () => {
-            selectedTarget = TARGET_CYCLE[selectedTarget];
+            selectedTarget = (selectedTarget + 1) % QUALITY_TARGETS.length;
+            if (ratingEnabled) btnStar.style.color = QUALITY_TARGETS[selectedTarget].color;
         });
+
+        // Click R/G/B bar area to toggle HSV mode
+        function toggleHsv() {
+            hsvMode = !hsvMode;
+            chartContainer.classList.toggle('hsv-mode');
+            labelR.textContent = hsvMode ? 'H' : 'R';
+            labelG.textContent = hsvMode ? 'S' : 'G';
+            labelB.textContent = hsvMode ? 'V' : 'B';
+            navRgb.textContent = hsvMode ? 'HSV' : 'RGB';
+            const rTrack = barR.parentElement;
+            if (hsvMode) {
+                rTrack.style.background = 'linear-gradient(to top, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00)';
+                rTrack.style.overflow = 'visible';
+                // Remove stale dots then recreate
+                rTrack.querySelectorAll('.hue-marker').forEach(d => d.remove());
+                const markers = [
+                    { color: 'rgb(0,255,0)', bottom: '33.33%', letter: 'D' },  // Digital Green 120°
+                    { color: 'rgb(0,177,64)', bottom: '39.44%', letter: 'C' },  // Chroma Green  142°
+                    { color: '#3375fc', bottom: '66.67%', letter: 'D' },  // Digital Blue  240°
+                    { color: 'rgb(0,71,187)', bottom: '60.33%', letter: 'C' },  // Chroma Blue   217°
+                ];
+                markers.forEach(m => {
+                    const el = document.createElement('div');
+                    el.className = 'hue-marker';
+                    el.style.cssText = `position:absolute;right:calc(100% + 2px);bottom:${m.bottom};display:flex;align-items:center;gap:2px;`;
+                    const dot = document.createElement('div');
+                    dot.style.cssText = `width:6px;height:6px;border-radius:50%;background:${m.color};flex-shrink:0;`;
+                    const label = document.createElement('span');
+                    label.style.cssText = `font-size:10px;color:${m.color};font-weight:700;line-height:1;`;
+                    label.textContent = m.letter;
+                    el.appendChild(label);
+                    el.appendChild(dot);
+                    rTrack.appendChild(el);
+                });
+            } else {
+                rTrack.style.background = '';
+                rTrack.style.overflow = '';
+                rTrack.querySelectorAll('.hue-marker').forEach(d => d.remove());
+            }
+        }
+        labelR.closest('.bar-wrapper').addEventListener('click', toggleHsv);
+        labelG.closest('.bar-wrapper').addEventListener('click', toggleHsv);
+        labelB.closest('.bar-wrapper').addEventListener('click', toggleHsv);
 
         function setView(view) {
             currentView = view;
@@ -919,6 +1031,16 @@
                 navRgb.classList.remove('active');
             }
         }
+
+        let ratingEnabled = false;
+
+        // Star rating toggle
+        btnStar.addEventListener('click', () => {
+            ratingEnabled = !ratingEnabled;
+            btnStar.classList.toggle('active');
+            chartContainer.classList.toggle('rating-hidden');
+            btnStar.style.color = ratingEnabled ? QUALITY_TARGETS[selectedTarget].color : '';
+        });
 
         // Programmatic Fullscreen Mode Handler
         btnFullscreen.addEventListener('click', () => {
@@ -951,6 +1073,7 @@
 
         function handleFullscreenChange() {
             const isFS = document.fullscreenElement || document.webkitFullscreenElement;
+            btnFullscreen.classList.toggle('active', !!isFS);
             if (isFS) {
                 btnFullscreen.innerHTML = '&#x2922;'; // exit fullscreen icon (diagonal arrows in)
             } else {
@@ -1022,6 +1145,8 @@
                     const calibratedG = Math.min(255, smoothedG * gainG);
                     const calibratedB = Math.min(255, smoothedB * gainB);
 
+                    const hsv = rgbToHsv(calibratedR, calibratedG, calibratedB);
+
                     const pctR = (calibratedR / 255) * 100;
                     const pctG = (calibratedG / 255) * 100;
                     const pctB = (calibratedB / 255) * 100;
@@ -1053,7 +1178,7 @@
                     const finalScore = Math.max(0, Math.min(100, t.scoreFn(n)));
 
                     // Instantly update chart heights
-                    updateBars(dispR, dispG, dispB);
+                    updateBars(dispR, dispG, dispB, hsv.h, hsv.s, hsv.v, calibratedR, calibratedG, calibratedB);
                     labelQ.textContent = t.label;
                     labelQ.style.color = t.color;
                     barQ.style.height = `${finalScore}%`;
@@ -1061,7 +1186,7 @@
 
                     // Throttles numerical displays to 1s
                     if (timestamp - lastTextUpdateTime >= 1000) {
-                        updateText(dispR, dispG, dispB);
+                        updateText(dispR, dispG, dispB, hsv.h, hsv.s, hsv.v);
                         valQ.textContent = `${Math.round(finalScore)}`;
                         lastTextUpdateTime = timestamp;
                     }
@@ -1155,17 +1280,38 @@
         }
 
         // Fast update executed every frame to update bar heights directly
-        function updateBars(r, g, b) {
-            barR.style.height = `${r}%`;
-            barG.style.height = `${g}%`;
-            barB.style.height = `${b}%`;
+        function updateBars(r, g, b, h, s, v, cr, cg, cb) {
+            if (hsvMode) {
+                const gray = Math.round(v / 100 * 255);
+                barR.style.bottom = `${h / 360 * 100}%`;
+                barR.style.height = '4px';
+                barR.style.background = '#000';
+                barG.style.height = `${s}%`;
+                barG.style.background = `rgb(${Math.round(cr)},${Math.round(cg)},${Math.round(cb)})`;
+                barB.style.height = `${v}%`;
+                barB.style.background = `rgb(${gray},${gray},${gray})`;
+            } else {
+                barR.style.height = `${r}%`;
+                barR.style.bottom = '';
+                barR.style.background = '';
+                barG.style.height = `${g}%`;
+                barG.style.background = '';
+                barB.style.height = `${b}%`;
+                barB.style.background = '';
+            }
         }
 
         // Throttled update executed once per second for text labels
-        function updateText(r, g, b) {
-            valR.textContent = `${Math.round(r)}%`;
-            valG.textContent = `${Math.round(g)}%`;
-            valB.textContent = `${Math.round(b)}%`;
+        function updateText(r, g, b, h, s, v) {
+            if (hsvMode) {
+                valR.textContent = `${Math.round(h)}°`;
+                valG.textContent = `${Math.round(s)}%`;
+                valB.textContent = `${Math.round(v)}%`;
+            } else {
+                valR.textContent = `${Math.round(r)}%`;
+                valG.textContent = `${Math.round(g)}%`;
+                valB.textContent = `${Math.round(b)}%`;
+            }
         }
 
 
